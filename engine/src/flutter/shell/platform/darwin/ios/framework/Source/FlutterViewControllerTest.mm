@@ -1237,7 +1237,7 @@ extern NSNotificationName const FlutterViewControllerWillDealloc;
   OCMVerifyAll(mockVC);
 }
 
-- (void)testUpdateViewportMetricsIfNeeded_DoesNotInvokeEngineWhenShouldBeIgnoredDuringRotation {
+- (void)testUpdateViewportMetricsIfNeeded_InvokesEngineDuringRotation {
   FlutterEngine* mockEngine = OCMPartialMock([[FlutterEngine alloc] init]);
   [mockEngine createShell:@"" libraryURI:@"" initialRoute:nil];
   FlutterViewController* viewController = [[FlutterViewController alloc] initWithEngine:mockEngine
@@ -1253,13 +1253,12 @@ extern NSNotificationName const FlutterViewControllerWillDealloc;
 
   // Mimic the device rotation.
   [viewController viewWillTransitionToSize:CGSizeZero withTransitionCoordinator:mockCoordinator];
-  // Should not trigger the engine call when during rotation.
+  OCMExpect([mockEngine updateViewportMetrics:flutter::ViewportMetrics()]).ignoringNonObjectArgs();
   [viewController updateViewportMetricsIfNeeded];
-
-  OCMVerify(never(), [mockEngine updateViewportMetrics:flutter::ViewportMetrics()]);
+  OCMVerifyAll(mockEngine);
 }
 
-- (void)testViewWillTransitionToSize_DoesDelayEngineCallIfNonZeroDuration {
+- (void)testViewWillTransitionToSize_DoesNotWaitForHalfDuration {
   FlutterEngine* mockEngine = OCMPartialMock([[FlutterEngine alloc] init]);
   [mockEngine createShell:@"" libraryURI:@"" initialRoute:nil];
   FlutterViewController* viewController = [[FlutterViewController alloc] initWithEngine:mockEngine
@@ -1279,17 +1278,8 @@ extern NSNotificationName const FlutterViewControllerWillDealloc;
   OCMExpect([mockEngine updateViewportMetrics:viewportMetrics]).ignoringNonObjectArgs();
 
   [viewController viewWillTransitionToSize:CGSizeZero withTransitionCoordinator:mockCoordinator];
-  // Should not immediately call the engine (this request should be ignored).
+  // Metrics are forwarded immediately, not after a fraction of system duration.
   [viewController updateViewportMetricsIfNeeded];
-  OCMVerify(never(), [mockEngine updateViewportMetrics:flutter::ViewportMetrics()]);
-
-  // Should delay the engine call for half of the transition duration.
-  // Wait for additional transitionDuration to allow updateViewportMetrics calls if any.
-  XCTWaiterResult result = [XCTWaiter
-      waitForExpectations:@[ [self expectationWithDescription:@"Waiting for rotation duration"] ]
-                  timeout:transitionDuration];
-  XCTAssertEqual(result, XCTWaiterResultTimedOut);
-
   OCMVerifyAll(mockEngine);
 }
 

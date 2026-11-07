@@ -165,6 +165,8 @@ typedef struct MouseState {
 @implementation FlutterViewController {
   flutter::ViewportMetrics _viewportMetrics;
   flutter::ViewSurfaceCoordinator _surfaceCoordinator;
+  FlutterVSyncClient* _rotationViewportVSyncClient;
+  uint64_t _rotationViewportRevision;
   MouseState _mouseState;
   FlutterSplashScreenManager* _splashScreenManager;
 }
@@ -853,6 +855,7 @@ static UIView* GetViewOrPlaceholder(UIView* existing_view) {
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
+  [self stopRotationViewportUpdates];
   TRACE_EVENT0("flutter", "viewWillDisappear");
   if (self.engine.viewController == self) {
     [self.engine.lifecycleChannel sendMessage:@"AppLifecycleState.inactive"];
@@ -876,36 +879,39 @@ static UIView* GetViewOrPlaceholder(UIView* existing_view) {
 - (void)viewWillTransitionToSize:(CGSize)size
        withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
   [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
-
-  // We delay the viewport metrics update for half of rotation transition duration, to address
-  // a bug with distorted aspect ratio.
-  // See: https://github.com/flutter/flutter/issues/16322
-  //
-  // This approach does not fully resolve all distortion problem. But instead, it reduces the
-  // rotation distortion roughly from 4x to 2x. The most distorted frames occur in the middle
-  // of the transition when it is rotating the fastest, making it hard to notice.
-
-  NSTimeInterval transitionDuration = coordinator.transitionDuration;
-  // Do not delay viewport metrics update if zero transition duration.
-  if (transitionDuration == 0) {
+  [self stopRotationViewportUpdates];
+  if (coordinator.transitionDuration == 0 || !self.engine) {
     return;
   }
 
+  const uint64_t revision = _rotationViewportRevision;
   __weak FlutterViewController* weakSelf = self;
-  _shouldIgnoreViewportMetricsUpdatesDuringRotation = YES;
-  dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
-                               static_cast<int64_t>(transitionDuration / 2.0 * NSEC_PER_SEC)),
-                 dispatch_get_main_queue(), ^{
-                   FlutterViewController* strongSelf = weakSelf;
-                   if (!strongSelf) {
-                     return;
-                   }
+  _rotationViewportVSyncClient = [[FlutterVSyncClient alloc]
+                initWithTaskRunner:self.engine.platformTaskRunner
+      isVariableRefreshRateEnabled:FlutterDisplayLinkManager.maxRefreshRateEnabledOnIPhone
+                    maxRefreshRate:FlutterDisplayLinkManager.displayRefreshRate
+                          callback:^(CFTimeInterval start, CFTimeInterval target) {
+                            [weakSelf updateViewportMetricsIfNeeded];
+                          }];
+  _rotationViewportVSyncClient.allowPauseAfterVsync = NO;
+  [_rotationViewportVSyncClient await];
+  [coordinator animateAlongsideTransition:nil
+                              completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+                                FlutterViewController* strongSelf = weakSelf;
+                                if (!strongSelf || strongSelf->_rotationViewportRevision != revision) {
+                                  return;
+                                }
+                                [strongSelf stopRotationViewportUpdates];
+                                [strongSelf setViewportMetricsSize];
+                                [strongSelf setViewportMetricsPaddings];
+                                [strongSelf updateViewportMetricsIfNeeded];
+                              }];
+}
 
-                   // `viewWillTransitionToSize` is only called after the previous rotation is
-                   // complete. So there won't be race condition for this flag.
-                   strongSelf.shouldIgnoreViewportMetricsUpdatesDuringRotation = NO;
-                   [strongSelf updateViewportMetricsIfNeeded];
-                 });
+- (void)stopRotationViewportUpdates {
+  ++_rotationViewportRevision;
+  [_rotationViewportVSyncClient invalidate];
+  _rotationViewportVSyncClient = nil;
 }
 
 - (void)flushOngoingTouches {
@@ -947,6 +953,7 @@ static UIView* GetViewOrPlaceholder(UIView* existing_view) {
 }
 
 - (void)dealloc {
+  [self stopRotationViewportUpdates];
   // TODO(cbracken): https://github.com/flutter/flutter/issues/157140
   // Eliminate method calls in initializers and dealloc.
   [self removeInternalPlugins];
@@ -1056,6 +1063,7 @@ static UIView* GetViewOrPlaceholder(UIView* existing_view) {
 }
 
 - (void)appOrSceneDidEnterBackground {
+  [self stopRotationViewportUpdates];
   self.keyboardInsetManager.isKeyboardInOrTransitioningFromBackground = YES;
   [self surfaceUpdated:NO];
   [self goToApplicationLifecycle:@"AppLifecycleState.paused"];
@@ -1396,6 +1404,9 @@ static flutter::PointerData::DeviceKind DeviceKindFromTouchType(UITouch* touch) 
 #pragma mark - Handle view resizing
 
 - (void)updateViewportMetricsIfNeeded {
+  if (_rotationViewportVSyncClient) {
+    [self setViewportMetricsSize];
+  }
   if (_shouldIgnoreViewportMetricsUpdatesDuringRotation) {
     return;
   }
@@ -1547,8 +1558,17 @@ static flutter::PointerData::DeviceKind DeviceKindFromTouchType(UITouch* touch) 
   }
 
   CGFloat scale = screen.scale;
-  _viewportMetrics.physical_width = self.view.bounds.size.width * scale;
-  _viewportMetrics.physical_height = self.view.bounds.size.height * scale;
+  CGSize viewportSize = self.view.bounds.size;
+  if (_rotationViewportVSyncClient) {
+    CALayer* presentation = self.view.layer.presentationLayer;
+    if (presentation && presentation.bounds.size.width > 0 && presentation.bounds.size.height > 0) {
+      viewportSize = presentation.bounds.size;
+    }
+    viewportSize.width = round(viewportSize.width * scale) / scale;
+    viewportSize.height = round(viewportSize.height * scale) / scale;
+  }
+  _viewportMetrics.physical_width = viewportSize.width * scale;
+  _viewportMetrics.physical_height = viewportSize.height * scale;
   // TODO(louisehsu): update for https://github.com/flutter/flutter/issues/169147
   _viewportMetrics.physical_min_width_constraint = _viewportMetrics.physical_width;
   _viewportMetrics.physical_max_width_constraint = _viewportMetrics.physical_width;
