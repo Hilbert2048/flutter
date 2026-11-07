@@ -79,6 +79,14 @@ class LaunchTest(unittest.TestCase):
         self.assertEqual(launch.choose_variant(['assemble', '-dTargetPlatform=ios', '-dBuildMode=debug',
                          '-dSdkRoot=/Xcode/iPhoneSimulator27.2.sdk'], Path('/sdk')), 'ios-simulator-debug')
 
+    def test_flutter_does_not_inherit_xcode_engine_environment(self):
+        with patch.dict(os.environ, {'FLUTTER_ENGINE': '/stale', 'LOCAL_ENGINE': 'stale',
+                                    'LOCAL_ENGINE_HOST': 'wrong'}):
+            env = launch.flutter_environment()
+            self.assertNotIn('FLUTTER_ENGINE', env)
+            self.assertNotIn('LOCAL_ENGINE', env)
+            self.assertNotIn('LOCAL_ENGINE_HOST', env)
+
     def test_external_override_is_rejected(self):
         with self.assertRaisesRegex(ToolchainError, 'conflict'):
             launch.cli_arguments(SelectionFixture(), ['--local-engine=other', 'build', 'ios'])

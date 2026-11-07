@@ -119,6 +119,15 @@ def xcode_environment(selection, env):
     return env
 
 
+def flutter_environment():
+    env = dict(os.environ, HILBERT_FLUTTER_INNER='1')
+    # Xcode exports these to its backend. Flutter itself requires the equivalent
+    # explicit global flags; inherited values otherwise break e.g. --version.
+    for name in ('FLUTTER_ENGINE', 'LOCAL_ENGINE', 'LOCAL_ENGINE_HOST'):
+        env.pop(name, None)
+    return env
+
+
 def main():
     kind, *args = sys.argv[1:]
     try:
@@ -141,7 +150,7 @@ def main():
             print(json.dumps(cli_arguments(selection, args)))
             return 0
         else:
-            env = dict(os.environ, HILBERT_FLUTTER_INNER='1')
+            env = flutter_environment()
             executable = SDK_ROOT / 'bin/flutter'
             argv = [str(executable), *cli_arguments(selection, args)]
         os.execve(str(executable), argv, env)
