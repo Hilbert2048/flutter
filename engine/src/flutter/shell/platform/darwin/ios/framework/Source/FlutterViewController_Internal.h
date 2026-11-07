@@ -74,6 +74,9 @@ typedef void (^FlutterKeyboardAnimationCallback)(NSTimeInterval);
 - (void)deregisterNotifications;
 
 - (BOOL)supportsShowingSystemContextMenu;
+// Called after the engine updates its GPU availability on the platform thread.
+- (void)onEngineGpuAvailabilityChanged;
+
 - (BOOL)stateIsActive;
 - (BOOL)stateIsBackground;
 
