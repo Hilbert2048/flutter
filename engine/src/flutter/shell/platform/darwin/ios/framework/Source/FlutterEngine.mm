@@ -1498,6 +1498,9 @@ static void SetEntryPoint(flutter::Settings* settings, NSString* entrypoint, NSS
                                      : flutter::GpuAvailability::kAvailable);
   }
   _isGpuDisabled = value;
+  if (!value) {
+    [self.viewController onEngineGpuAvailabilityChanged];
+  }
 }
 
 #pragma mark - Locale updates
