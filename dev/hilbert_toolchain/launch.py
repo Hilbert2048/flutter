@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from urllib.parse import urljoin, urlsplit, unquote
 from config import Selection, ToolchainError, project_root, revision, SDK_ROOT, NoProjectLock
 
 
@@ -83,8 +84,22 @@ def cli_arguments(selection, args, platform_lookup=device_platform):
     return expected + args
 
 
+def validate_package_sdk(root, sdk):
+    config = root / '.dart_tool/package_config.json'
+    if not config.is_file():
+        raise ToolchainError('Run tool/flutterw pub get before an Xcode build')
+    packages = json.loads(config.read_text()).get('packages', [])
+    package = next((p for p in packages if p['name'] == 'flutter'), None)
+    if package is None:
+        raise ToolchainError('Flutter package missing; run tool/flutterw pub get')
+    uri = urlsplit(urljoin(config.as_uri(), package['rootUri']))
+    if uri.scheme != 'file' or Path(unquote(uri.path)).resolve() != (sdk / 'packages/flutter').resolve():
+        raise ToolchainError('Package config still references another Flutter SDK; run tool/flutterw pub get')
+
+
 def xcode_environment(selection, env):
-    selection.sdk()
+    sdk = selection.sdk()
+    validate_package_sdk(selection.root, sdk)
     platform = 'ios-simulator' if env.get('PLATFORM_NAME') == 'iphonesimulator' else 'ios-device'
     mode = env.get('FLUTTER_BUILD_MODE', '').lower()
     if not mode:

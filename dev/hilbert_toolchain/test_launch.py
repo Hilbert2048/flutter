@@ -9,6 +9,7 @@ from config import project_root, ToolchainError
 
 
 class SelectionFixture:
+    root = Path('/project')
     lock = {'engineSelection': {'ios-device-release': 'restore', 'ios-simulator-debug': 'sim'}}
 
     def sdk(self):
@@ -45,14 +46,27 @@ class LaunchTest(unittest.TestCase):
     def test_xcode_ignores_stale_generated_engine(self):
         env = {'PLATFORM_NAME': 'iphoneos', 'CONFIGURATION': 'Release-production',
                'LOCAL_ENGINE': 'stale', 'LOCAL_ENGINE_HOST': 'wrong'}
-        actual = launch.xcode_environment(SelectionFixture(), env)
+        with patch('launch.validate_package_sdk'):
+            actual = launch.xcode_environment(SelectionFixture(), env)
         self.assertEqual(actual['LOCAL_ENGINE'], 'ios-device-release')
         self.assertEqual(actual['LOCAL_ENGINE_HOST'], 'host-matched')
 
     def test_xcode_simulator_selects_debug(self):
-        actual = launch.xcode_environment(SelectionFixture(),
+        with patch('launch.validate_package_sdk'):
+            actual = launch.xcode_environment(SelectionFixture(),
                          {'PLATFORM_NAME': 'iphonesimulator', 'CONFIGURATION': 'Debug'})
         self.assertEqual(actual['LOCAL_ENGINE'], 'ios-simulator-debug')
+
+    def test_xcode_rejects_stale_framework_package_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / '.dart_tool').mkdir()
+            config = root / '.dart_tool/package_config.json'
+            config.write_text(json.dumps({'packages': [{'name': 'flutter', 'rootUri': 'file:///old-sdk/packages/flutter'}]}))
+            with self.assertRaisesRegex(ToolchainError, 'another Flutter SDK'):
+                launch.validate_package_sdk(root, Path('/new-sdk'))
+            config.write_text(json.dumps({'packages': [{'name': 'flutter', 'rootUri': 'file:///new-sdk/packages/flutter'}]}))
+            launch.validate_package_sdk(root, Path('/new-sdk'))
 
     def test_external_override_is_rejected(self):
         with self.assertRaisesRegex(ToolchainError, 'conflict'):
