@@ -895,17 +895,18 @@ static UIView* GetViewOrPlaceholder(UIView* existing_view) {
                           }];
   _rotationViewportVSyncClient.allowPauseAfterVsync = NO;
   [_rotationViewportVSyncClient await];
-  [coordinator animateAlongsideTransition:nil
-                              completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
-                                FlutterViewController* strongSelf = weakSelf;
-                                if (!strongSelf || strongSelf->_rotationViewportRevision != revision) {
-                                  return;
-                                }
-                                [strongSelf stopRotationViewportUpdates];
-                                [strongSelf setViewportMetricsSize];
-                                [strongSelf setViewportMetricsPaddings];
-                                [strongSelf updateViewportMetricsIfNeeded];
-                              }];
+  [coordinator
+      animateAlongsideTransition:nil
+                      completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+                        FlutterViewController* strongSelf = weakSelf;
+                        if (!strongSelf || strongSelf->_rotationViewportRevision != revision) {
+                          return;
+                        }
+                        [strongSelf stopRotationViewportUpdates];
+                        [strongSelf setViewportMetricsSize];
+                        [strongSelf setViewportMetricsPaddings];
+                        [strongSelf updateViewportMetricsIfNeeded];
+                      }];
 }
 
 - (void)stopRotationViewportUpdates {
