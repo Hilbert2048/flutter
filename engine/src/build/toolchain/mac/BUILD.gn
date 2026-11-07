@@ -457,7 +457,9 @@ if (is_ios) {
     cc = "${cxx_prefix}${prefix}/clang"
     cxx = "${cxx_prefix}${prefix}/clang++"
     objc = "${objc_prefix}${prefix}/clang++"
-    ld = "${link_prefix}${prefix}/clang++"
+    # Xcode 27 ld requires LC_BUILD_VERSION-style simulator platform arguments.
+    # Tell Clang which linker is actually selected and use its matching LTO library.
+    ld = "${link_prefix}${prefix}/clang++ -mlinker-version=27106.1 -Wl,-lto_library,${mac_host_toolchain_path}/usr/lib/libLTO.dylib"
     is_clang = true
 
     sysroot_rel = rebase_path(ios_sdk_path, root_build_dir)
@@ -474,7 +476,7 @@ if (is_ios) {
     cc = "${cxx_prefix}${prefix}/clang"
     cxx = "${cxx_prefix}${prefix}/clang++"
     objc = "${objc_prefix}${prefix}/clang++"
-    ld = "${link_prefix}${prefix}/clang++"
+    ld = "${link_prefix}${prefix}/clang++ -mlinker-version=27106.1 -Wl,-lto_library,${mac_host_toolchain_path}/usr/lib/libLTO.dylib"
     is_clang = true
 
     sysroot_rel = rebase_path(ios_sdk_path, root_build_dir)
