@@ -1,0 +1,38 @@
+From b1402eb178a229a0af2833263c572974bd5d3049 Mon Sep 17 00:00:00 2001
+From: Hilbert2048 <125776109+Hilbert2048@users.noreply.github.com>
+Date: Sat, 7 Nov 2026 17:20:19 +0800
+Subject: [PATCH] Limit Xcode 27 signpost attribute warning to recorder
+ implementation
+
+---
+ runtime/vm/timeline_macos.cc | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/runtime/vm/timeline_macos.cc b/runtime/vm/timeline_macos.cc
+index 7972e4b1..10f0c95f 100644
+--- a/runtime/vm/timeline_macos.cc
++++ b/runtime/vm/timeline_macos.cc
+@@ -19,6 +19,11 @@ TimelineEventMacosRecorder::TimelineEventMacosRecorder()
+ 
+ TimelineEventMacosRecorder::~TimelineEventMacosRecorder() {}
+ 
++// Xcode 27 SDK signpost macros use stack_protector_ignore on local buffers.
++// The pinned Clang warns when -fstack-protector-all takes precedence. Keep
++// stack protection enabled; limit this compatibility suppression to this method.
++#pragma clang diagnostic push
++#pragma clang diagnostic ignored "-Wignored-attributes"
+ void TimelineEventMacosRecorder::OnEvent(TimelineEvent* event) {
+   if (event == nullptr) {
+     return;
+@@ -74,6 +79,8 @@ void TimelineEventMacosRecorder::OnEvent(TimelineEvent* event) {
+   }
+ }
+ 
++#pragma clang diagnostic pop
++
+ }  // namespace dart
+ 
+ #endif  // defined(DART_HOST_OS_MACOS) && defined(SUPPORT_TIMELINE)
+-- 
+2.54.0 (Apple Git-157)
+
