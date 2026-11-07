@@ -50,7 +50,7 @@ def main():
                 'host': variant['host'], 'files': files}
         if not args.sdk and not args.profile:
             p.error('Specify --sdk or a complete local-engine registration')
-        destination = selection.local_path
+        destination = selection.local_path.resolve()
         destination.parent.mkdir(parents=True, exist_ok=True)
         temporary = destination.with_name(destination.name + '.tmp')
         temporary.write_text(json.dumps(local, indent=2) + '\n')

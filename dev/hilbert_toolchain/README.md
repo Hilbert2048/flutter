@@ -14,7 +14,7 @@ exact source commit in schema-2 `toolchain.json`. Keep upstream `master` untouch
 - Engine-build provenance records the exact build checkout revision and Dart DEPS
   revision separately from the framework revision. This first migration reuses
   existing candidate outputs and builds new modes from the restoration checkout;
-  the engine subtree matches integration. It is not legitimate to relabel an old
+  the new build checkout's engine subtree matches integration; the historical Release used an earlier linker-only compatibility revision. It is not legitimate to relabel an old
   binary with a new source revision. Future releases may build everything directly
   from the integrated checkout.
 - The official artifact revision in `bin/internal/engine.version` is the genuine
@@ -35,11 +35,11 @@ existing builds with `prepare.py`, run it from the app root:
 
 ```sh
 python3 .toolchains/flutter/dev/hilbert_toolchain/prepare.py --sdk /absolute/sdk
-python3 .toolchains/flutter/dev/hilbert_toolchain/prepare.py --profile restore --variant ios-device-release --engine-src /absolute/build/engine/src
+python3 .toolchains/flutter/dev/hilbert_toolchain/prepare.py --profile rotation-restore --variant ios-device-release --engine-src /absolute/build/engine/src
 ```
 
 `tool/flutterw` and the SDK's `bin/flutter` share one launcher. Cursor/VS Code uses
-`.toolchains/flutter` through the project's `dart.flutterSdkPath`. Physical and
+the shared `/Users/hilbert/coding/flutter` entry through the project's `dart.flutterSdkPath`. Physical and
 simulated iOS targets are resolved from Flutter's selected device ID. An ambiguous
 target needs explicit `-d`. No automatic stock-engine fallback is allowed for iOS.
 Other platforms retain the custom framework and use upstream engine artifacts.
@@ -74,7 +74,7 @@ compiler upgrade. It is not part of the generic rotation fix.
 
 ```sh
 python3 -m unittest discover -s dev/hilbert_toolchain -p 'test_*.py'
-python3 .toolchains/flutter/dev/hilbert_toolchain/verify.py --profile restore --variant ios-device-release --app /absolute/Runner.app
+python3 .toolchains/flutter/dev/hilbert_toolchain/verify.py --profile rotation-restore --variant ios-device-release --app /absolute/Runner.app
 ```
 
 The launcher validates the exact clean SDK revision; engine verification checks
@@ -92,3 +92,23 @@ functional patches independently, drop fixes already supplied upstream, rebuild
 all supported modes, then update app locks through dedicated commits. Artifacts
 belong in immutable versioned releases/storage, not Git. Publishing binary assets
 and enabling CI are separate from local source/toolchain migration.
+
+## Exact Dart patch replay
+
+The patch's author and committer metadata are intentionally identical. Starting
+from the DEPS base `f6c31f4c3a63512dba17852a1aa761a1edac533d`, this command was
+verified in an independent worktree to reproduce
+`b1402eb178a229a0af2833263c572974bd5d3049` exactly:
+
+```sh
+git -c user.name=Hilbert2048 -c user.email=125776109+Hilbert2048@users.noreply.github.com -c commit.gpgsign=false am --committer-date-is-author-date /absolute/flutter/dev/hilbert_toolchain/patches/0003-dart-xcode27-signpost.patch
+```
+
+Ordinary `git am` uses a new committer timestamp and produces a different Dart
+SDK hash. Preserve the metadata or publish/revalidate a new source and artifact
+lock. Never relabel the old SDK.
+
+The first complete local matrix is iOS device Debug/Profile/Release and arm64
+Simulator Debug, all with the real `b1402eb178` VM/host SDK hash. App locks carry
+per-file artifact hashes; registering different binaries requires a reviewed lock
+update. Shared local registration symlinks are followed on atomic writes.
