@@ -5,6 +5,7 @@
 #define FML_USED_ON_EMBEDDER
 
 #import "flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController_Internal.h"
+#include "flutter/shell/platform/darwin/ios/framework/Source/view_surface_coordinator.h"
 
 #import <os/log.h>
 #include <memory>
@@ -163,6 +164,7 @@ typedef struct MouseState {
 
 @implementation FlutterViewController {
   flutter::ViewportMetrics _viewportMetrics;
+  flutter::ViewSurfaceCoordinator _surfaceCoordinator;
   MouseState _mouseState;
   FlutterSplashScreenManager* _splashScreenManager;
 }
@@ -720,6 +722,7 @@ static UIView* GetViewOrPlaceholder(UIView* existing_view) {
     return;
   }
 
+  const uint64_t surfaceEpoch = _surfaceCoordinator.epoch();
   // NotifyCreated/NotifyDestroyed are synchronous and require hops between the UI and raster
   // thread.
   if (appeared) {
@@ -727,8 +730,10 @@ static UIView* GetViewOrPlaceholder(UIView* existing_view) {
     self.platformViewsController.flutterView = self.flutterView;
     self.platformViewsController.flutterViewController = self;
     [self.engine notifyViewCreated];
+    _surfaceCoordinator.DidCreateSurface(surfaceEpoch);
   } else {
     self.displayingFlutterUI = NO;
+    _surfaceCoordinator.DidDestroySurface();
     [self.engine notifyViewDestroyed];
     self.platformViewsController.flutterView = nil;
     self.platformViewsController.flutterViewController = nil;
@@ -1031,9 +1036,8 @@ static UIView* GetViewOrPlaceholder(UIView* existing_view) {
 
 - (void)appOrSceneBecameActive {
   self.keyboardInsetManager.isKeyboardInOrTransitioningFromBackground = NO;
-  if (_viewportMetrics.physical_width) {
-    [self surfaceUpdated:YES];
-  }
+  _surfaceCoordinator.DidBecomeActive();
+  [self tryPrepareForegroundSurface];
   [self performSelector:@selector(goToApplicationLifecycle:)
              withObject:@"AppLifecycleState.resumed"
              afterDelay:0.0f];
@@ -1058,7 +1062,33 @@ static UIView* GetViewOrPlaceholder(UIView* existing_view) {
 }
 
 - (void)appOrSceneWillEnterForeground {
+  _surfaceCoordinator.WillEnterForeground();
   [self goToApplicationLifecycle:@"AppLifecycleState.inactive"];
+  // Obtain a layout for this foreground epoch even when the size is unchanged.
+  // GPU readiness is delivered independently; neither observer order nor an
+  // arbitrary delay is required to prepare the surface.
+  [self.viewIfLoaded setNeedsLayout];
+}
+
+- (void)onEngineGpuAvailabilityChanged {
+  [self tryPrepareForegroundSurface];
+}
+
+- (void)tryPrepareForegroundSurface {
+  UIView* view = self.viewIfLoaded;
+  UIWindow* window = view.window;
+  UIWindowScene* scene = window.windowScene;
+  const bool foreground =
+      scene ? (scene.activationState == UISceneActivationStateForegroundInactive ||
+               scene.activationState == UISceneActivationStateForegroundActive)
+            : self.stateIsActive;
+  const flutter::ViewSurfaceCoordinator::Readiness readiness = {
+      self.engine && self.engine.viewController == self, window != nil, foreground,
+      self.engine && !self.engine.isGpuDisabled,
+      _viewportMetrics.physical_width > 0 && _viewportMetrics.physical_height > 0};
+  if (_surfaceCoordinator.BeginPreparation(readiness)) {
+    [self surfaceUpdated:YES];
+  }
 }
 
 // Make this transition only while this current view controller is visible.
@@ -1371,6 +1401,8 @@ static flutter::PointerData::DeviceKind DeviceKindFromTouchType(UITouch* touch) 
   }
   if (self.engine.viewController == self) {
     [self.engine updateViewportMetrics:_viewportMetrics];
+    _surfaceCoordinator.DidCommitMetrics();
+    [self tryPrepareForegroundSurface];
   }
 }
 
@@ -1388,6 +1420,7 @@ static flutter::PointerData::DeviceKind DeviceKindFromTouchType(UITouch* touch) 
   [self setViewportMetricsSize];
   [self checkAndUpdateAutoResizeConstraints];
   [self setViewportMetricsPaddings];
+  _surfaceCoordinator.DidLayout();
   [self updateViewportMetricsIfNeeded];
 
   // There is no guarantee that UIKit will layout subviews when the application/scene is active.
@@ -1396,7 +1429,9 @@ static flutter::PointerData::DeviceKind DeviceKindFromTouchType(UITouch* touch) 
   // This must run after updateViewportMetrics so that the surface creation tasks are queued after
   // the viewport metrics update tasks.
   if (firstViewBoundsUpdate && self.stateIsActive && self.engine) {
-    [self surfaceUpdated:YES];
+    if (!_surfaceCoordinator.has_surface()) {
+      [self surfaceUpdated:YES];
+    }
 #if FLUTTER_RUNTIME_MODE == FLUTTER_RUNTIME_MODE_DEBUG
     NSTimeInterval timeout = 0.2;
 #else
