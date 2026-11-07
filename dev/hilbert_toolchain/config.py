@@ -156,6 +156,8 @@ class Selection:
                 raise ToolchainError(f'Incorrect {field} output for {variant}')
             output_name(artifact[field])
         files = artifact.get('files', {})
+        if expected.get('artifactFiles') is not None and files != expected['artifactFiles']:
+            raise ToolchainError('Local artifact registration differs from committed artifact hashes')
         required = expected['requiredFiles']
         if not required or not set(required).issubset(files):
             raise ToolchainError('Artifact registration omits required engine/host files')

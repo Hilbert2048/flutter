@@ -39,6 +39,8 @@ def main():
             verify_sdk_identity(source, pin, variant)
             files = {relative: digest(engine_file(source, relative))
                      for relative in variant['requiredFiles']}
+            if variant.get('artifactFiles') is not None and files != variant['artifactFiles']:
+                raise ToolchainError('Build differs from committed artifact hashes; publish a new reviewed lock')
             entry = local.setdefault('engines', {}).setdefault(args.profile, {})
             if entry.get('source') not in (None, str(source)):
                 raise ToolchainError('Profile already refers to a different source checkout')
