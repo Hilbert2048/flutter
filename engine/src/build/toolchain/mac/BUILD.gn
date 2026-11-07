@@ -114,7 +114,7 @@ template("mac_toolchain") {
     cc = invoker.cc
     cxx = invoker.cxx
     objc = invoker.objc
-    ld = invoker.ld
+    ld = invoker.ld + " -fuse-ld=/usr/bin/ld"
 
     if (use_clang_static_analyzer) {
       analyzer_wrapper =
