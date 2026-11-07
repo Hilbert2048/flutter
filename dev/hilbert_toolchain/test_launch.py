@@ -68,6 +68,17 @@ class LaunchTest(unittest.TestCase):
             config.write_text(json.dumps({'packages': [{'name': 'flutter', 'rootUri': 'file:///new-sdk/packages/flutter'}]}))
             launch.validate_package_sdk(root, Path('/new-sdk'))
 
+    def test_xcode_assemble_accepts_exact_locked_engine(self):
+        flags = ['--local-engine-src-path=/engine source', '--local-engine=ios-device-release',
+                 '--local-engine-host=host-matched']
+        args = flags + ['assemble', '-dTargetPlatform=ios', '-dBuildMode=release',
+                        '-dSdkRoot=/Xcode/iPhoneOS27.2.sdk', 'release_ios_bundle_flutter_assets']
+        self.assertEqual(launch.cli_arguments(SelectionFixture(), args), args)
+
+    def test_simulator_assemble_resolves_from_sdk_root(self):
+        self.assertEqual(launch.choose_variant(['assemble', '-dTargetPlatform=ios', '-dBuildMode=debug',
+                         '-dSdkRoot=/Xcode/iPhoneSimulator27.2.sdk'], Path('/sdk')), 'ios-simulator-debug')
+
     def test_external_override_is_rejected(self):
         with self.assertRaisesRegex(ToolchainError, 'conflict'):
             launch.cli_arguments(SelectionFixture(), ['--local-engine=other', 'build', 'ios'])

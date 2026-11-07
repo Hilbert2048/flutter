@@ -44,6 +44,12 @@ def choose_variant(args, sdk, platform_lookup=device_platform):
             return None
         platform = 'ios-simulator' if '--simulator' in args else 'ios-device'
         mode = 'debug' if platform == 'ios-simulator' else 'release'
+    elif command == 'assemble' and option(args, '-dTargetPlatform') == 'ios':
+        sdk_root = option(args, '-dSdkRoot') or ''
+        platform = 'ios-simulator' if 'iphonesimulator' in sdk_root.lower() else 'ios-device'
+        mode = option(args, '-dBuildMode')
+        if mode not in ('debug', 'profile', 'release'):
+            raise ToolchainError('Missing iOS assemble build mode')
     elif command in ('run', 'attach', 'drive'):
         platform = platform_lookup(args, sdk)
         if platform is None:
