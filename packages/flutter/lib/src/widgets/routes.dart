@@ -66,8 +66,9 @@ abstract class OverlayRoute<T> extends Route<T> {
 
   @override
   void install() {
-    assert(_overlayEntries.isEmpty);
-    _overlayEntries.addAll(createOverlayEntries());
+    if (_overlayEntries.isEmpty) {
+      _overlayEntries.addAll(createOverlayEntries());
+    }
     super.install();
   }
 
@@ -187,7 +188,6 @@ abstract class TransitionRoute<T> extends OverlayRoute<T> implements PredictiveB
   /// The animation controller that the route uses to drive the transitions.
   ///
   /// The animation itself is exposed by the [animation] property.
-  @protected
   AnimationController? get controller => _controller;
   AnimationController? _controller;
 
@@ -2284,7 +2284,7 @@ abstract class ModalRoute<T> extends TransitionRoute<T> with LocalHistoryRoute<T
       // To be sorted after the _modalScope.
       barrier = Semantics(sortKey: const OrdinalSortKey(1.0), child: barrier);
     }
-    return barrier;
+    return Offstage(offstage: offstage, child: barrier);
   }
 
   /// Build the barrier for this [ModalRoute], subclasses can override
@@ -2504,6 +2504,13 @@ class RouteObserver<R extends Route<dynamic>> extends NavigatorObserver {
       if (previousSubscribers != null) {
         for (final RouteAware routeAware in previousSubscribers) {
           routeAware.didPushNext();
+        }
+      }
+
+      final Set<RouteAware>? subscribers = _listeners[route];
+      if (subscribers != null) {
+        for (final RouteAware routeAware in subscribers) {
+          routeAware.didPush();
         }
       }
     }
@@ -2935,5 +2942,52 @@ abstract class PopEntry<T> {
   @override
   String toString() {
     return 'PopEntry canPop: ${canPopNotifier.value}, onPopInvoked: $onPopInvokedWithResult';
+  }
+}
+
+/// A mixin used by routes to indicate that they should be restored after being popped.
+///
+/// If a route mixes in this class and [shouldRestoreOnPop] returns true, the
+/// [Navigator] will not dispose the route when it is popped. Instead, it will
+/// cache the route and its overlay entries, allowing it to be restored later
+/// (e.g. via a swipe gesture).
+///
+/// The [shouldRestoreOnPop] property can be changed at any time before the
+/// route is popped. This allows pages to dynamically opt out of restoration
+/// based on runtime conditions (e.g., after a destructive action).
+///
+/// Example of dynamically disabling restoration from within a page:
+///
+/// ```dart
+/// void _onDeleteAction() {
+///   RestorableRouteMixin.setRestoreOnPop(context, false);
+/// }
+/// ```
+mixin RestorableRouteMixin<T> on Route<T> {
+  bool _shouldRestoreOnPop = false;
+
+  /// Whether this route should be cached by the [Navigator] when popped,
+  /// instead of being immediately disposed.
+  ///
+  /// This property can be changed dynamically. The [Navigator] reads it at
+  /// disposal time, so changes made before the route is popped will take effect.
+  ///
+  /// Defaults to false.
+  bool get shouldRestoreOnPop => _shouldRestoreOnPop;
+  set shouldRestoreOnPop(bool value) {
+    _shouldRestoreOnPop = value;
+  }
+
+  /// Sets [shouldRestoreOnPop] on the [RestorableRouteMixin] associated with
+  /// the given [BuildContext], if one exists.
+  ///
+  /// Returns true if the route was found and the value was set, false otherwise.
+  static bool setRestoreOnPop(BuildContext context, bool value) {
+    final ModalRoute<Object?>? route = ModalRoute.of(context);
+    if (route is RestorableRouteMixin) {
+      (route as RestorableRouteMixin<Object?>).shouldRestoreOnPop = value;
+      return true;
+    }
+    return false;
   }
 }
