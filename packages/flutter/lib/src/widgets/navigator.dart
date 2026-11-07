@@ -20,6 +20,7 @@ import 'dart:developer' as developer;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -28,11 +29,14 @@ import 'basic.dart';
 import 'binding.dart';
 import 'focus_manager.dart';
 import 'focus_scope.dart';
+
 import 'focus_traversal.dart';
 import 'framework.dart';
+import 'gesture_detector.dart';
 import 'heroes.dart';
 import 'notification_listener.dart';
 import 'overlay.dart';
+import 'pages.dart';
 import 'restoration.dart';
 import 'restoration_properties.dart';
 import 'routes.dart';
@@ -431,7 +435,13 @@ abstract class Route<T> extends _RoutePlaceholder {
   /// else the value of [currentResult]. See [didComplete] for more discussion
   /// on this topic.
   Future<T?> get popped => _popCompleter.future;
-  final Completer<T?> _popCompleter = Completer<T?>();
+  Completer<T?> _popCompleter = Completer<T?>();
+
+  void _resetPopCompleter() {
+    if (_popCompleter.isCompleted) {
+      _popCompleter = Completer<T?>();
+    }
+  }
 
   final Completer<T?> _disposeCompleter = Completer<T?>();
 
@@ -3262,13 +3272,15 @@ class _RouteEntry extends RouteTransitionRecord {
     );
     assert(navigator._debugLocked);
     assert(
-      !route._installed,
+      !route._installed || route.overlayEntries.isNotEmpty,
       'The pushed route has already been used. When pushing a route, a new '
       'Route object must be provided.',
     );
     final _RouteLifecycle previousState = currentState;
     route._navigator = navigator;
-    route.install();
+    if (route.overlayEntries.isEmpty) {
+      route.install();
+    }
     assert(route.overlayEntries.isNotEmpty);
     if (currentState == _RouteLifecycle.push || currentState == _RouteLifecycle.pushReplace) {
       final TickerFuture routeFuture = route.didPush();
@@ -3737,6 +3749,14 @@ class _History extends Iterable<_RouteEntry> with ChangeNotifier {
   String toString() {
     return _value.toString();
   }
+
+  bool remove(_RouteEntry entry) {
+    final bool result = _value.remove(entry);
+    if (result) {
+      notifyListeners();
+    }
+    return result;
+  }
 }
 
 /// The state for a [Navigator] widget.
@@ -4151,11 +4171,16 @@ class NavigatorState extends State<Navigator> with TickerProviderStateMixin, Res
   OverlayState? get overlay => _overlayKey.currentState;
 
   Iterable<OverlayEntry> get _allRouteOverlayEntries {
-    return <OverlayEntry>[for (final _RouteEntry entry in _history) ...entry.route.overlayEntries];
+    return <OverlayEntry>[
+      for (final _RouteEntry entry in _history) ...entry.route.overlayEntries,
+      if (_cachedRestoredEntry != null) ..._cachedRestoredEntry!.route.overlayEntries,
+    ];
   }
 
   _RouteEntry? _lastTopmostRoute;
   String? _lastAnnouncedRouteName;
+
+  _RouteEntry? _cachedRestoredEntry;
 
   bool _debugUpdatingPage = false;
   void _updatePages() {
@@ -4570,8 +4595,51 @@ class NavigatorState extends State<Navigator> with TickerProviderStateMixin, Res
           entry.currentState = _RouteLifecycle.dispose;
           continue;
         case _RouteLifecycle.dispose:
-          // Delay disposal until didChangeNext/didChangePrevious have been sent.
-          toBeDisposed.add(_history.removeAt(index));
+          final Route<dynamic> route = entry.route;
+          if (route is RestorableRouteMixin && route.shouldRestoreOnPop) {
+            // Restore the route instead of disposing it.
+            // 1. Dispose the old cached entry if exists.
+            if (_cachedRestoredEntry != null) {
+              _disposeRouteEntry(_cachedRestoredEntry!, graceful: true);
+            }
+            // 2. Cache the current entry.
+            _cachedRestoredEntry = _history.removeAt(index);
+            if (!_debugUpdatingPage && mounted) {
+              setState(() {});
+            }
+            // 3. Keep the route alive but hidden.
+            //    We set offstage to true to hide the overlay entries without removing/disposing them.
+            //    This preserves the state of the route.
+            if (route is ModalRoute) {
+              (route as ModalRoute).offstage = true;
+            }
+            // route._navigator = null; // Preserved for restoration.
+            // 4. Ensure we don't dispose it in this loop.
+          } else {
+            // Only invalidate the cached restorable entry when an opaque,
+            // fullscreen PageRoute is disposed — enforcing LIFO page order.
+            // Non-opaque PageRoutes (e.g. smooth_sheets' SheetPageRoute) and
+            // PopupRoutes (BottomSheet, Dialog) are transient overlays that
+            // do not represent a navigation stack level change.
+            if (_cachedRestoredEntry != null && route is PageRoute && route.opaque) {
+              // Since we are preserving overlay entries for the cached route (via offstage),
+              // we must manually remove and dispose them here before disposing the route entry itself.
+              if (_cachedRestoredEntry!.route.overlayEntries.isNotEmpty) {
+                for (final OverlayEntry entry in _cachedRestoredEntry!.route.overlayEntries) {
+                  entry.remove();
+                  entry.dispose();
+                }
+                _cachedRestoredEntry!.route.overlayEntries.clear();
+              }
+              _disposeRouteEntry(_cachedRestoredEntry!, graceful: true);
+              _cachedRestoredEntry = null;
+            }
+            toBeDisposed.add(_history.removeAt(index));
+          }
+
+          if (entry.pageBased && entry.imperativeRemoval) {
+            widget.onDidRemovePage?.call(entry.route.settings as Page<Object?>);
+          }
           entry = next;
         case _RouteLifecycle.disposing:
         case _RouteLifecycle.disposed:
@@ -5485,6 +5553,56 @@ class NavigatorState extends State<Navigator> with TickerProviderStateMixin, Res
   /// {@macro flutter.widgets.navigator.restorableReplaceRouteBelow}
   ///
   /// {@macro flutter.widgets.navigator.replaceRouteBelow}
+
+  _RestorationGestureController? _restorationGestureController;
+
+  void _cancelRestoration(_RouteEntry entry) {
+    setState(() {
+      if (_history.contains(entry)) {
+        entry.currentState = _RouteLifecycle.dispose;
+        assert(() {
+          _debugLocked = true;
+          return true;
+        }());
+        _flushHistoryUpdates();
+        assert(() {
+          _debugLocked = false;
+          return true;
+        }());
+      } else {
+        // Orphaned entry logic: clean up manually if needed
+        final Route<dynamic> route = entry.route;
+        // Don't dispose overlay entries if we want to cache it.
+        // Instead, validly cache it and hide it.
+
+        // Re-cache it if it's not already cached
+        if (_cachedRestoredEntry != entry) {
+          if (_cachedRestoredEntry != null) {
+            // Disposing the old cache properly (including overlay entries)
+            if (_cachedRestoredEntry!.route.overlayEntries.isNotEmpty) {
+              for (final OverlayEntry overlayEntry in _cachedRestoredEntry!.route.overlayEntries) {
+                overlayEntry.remove();
+                overlayEntry.dispose();
+              }
+              _cachedRestoredEntry!.route.overlayEntries.clear();
+            }
+            _disposeRouteEntry(_cachedRestoredEntry!, graceful: true);
+          }
+          _cachedRestoredEntry = entry;
+        }
+
+        // Hide it
+        if (route is ModalRoute) {
+          route.offstage = true;
+        }
+        // Ensure state update if needed
+        if (!_debugUpdatingPage && mounted) {
+          setState(() {});
+        }
+      }
+    });
+  }
+
   ///
   /// {@macro flutter.widgets.Navigator.restorablePush}
   ///
@@ -5983,12 +6101,80 @@ class NavigatorState extends State<Navigator> with TickerProviderStateMixin, Res
                 includeSemantics: false,
                 child: UnmanagedRestorationScope(
                   bucket: bucket,
-                  child: Overlay(
-                    key: _overlayKey,
-                    clipBehavior: widget.clipBehavior,
-                    initialEntries: overlay == null
-                        ? _allRouteOverlayEntries.toList(growable: false)
-                        : const <OverlayEntry>[],
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: <Widget>[
+                      Overlay(
+                        key: _overlayKey,
+                        clipBehavior: widget.clipBehavior,
+                        initialEntries: overlay == null
+                            ? _allRouteOverlayEntries.toList(growable: false)
+                            : const <OverlayEntry>[],
+                      ),
+                      // Gesture detector for page restoration
+                      if (_cachedRestoredEntry != null || _restorationGestureController != null)
+                        Positioned(
+                          right: 0,
+                          top: 0,
+                          bottom: 0,
+                          width: 20, // Sensitive area width
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            // Gesture detector for page restoration
+                            onHorizontalDragStart: (DragStartDetails details) {
+                              if (_cachedRestoredEntry == null) return;
+                              setState(() {
+                                final _RouteEntry entry = _cachedRestoredEntry!;
+                                _cachedRestoredEntry = null;
+
+                                // Reset the route state
+                                entry.route._resetPopCompleter();
+                                entry.currentState = _RouteLifecycle.push;
+
+                                // Make it visible again
+                                if (entry.route is ModalRoute) {
+                                  (entry.route as ModalRoute).offstage = false;
+                                }
+
+                                // Re-insert into history at the top
+                                _history.add(entry);
+
+                                // Mount the route
+                                assert(() {
+                                  _debugLocked = true;
+                                  return true;
+                                }());
+                                _flushHistoryUpdates();
+                                assert(() {
+                                  _debugLocked = false;
+                                  return true;
+                                }());
+
+                                _restorationGestureController = _RestorationGestureController(
+                                  navigator: this,
+                                  entry: entry,
+                                );
+                                _restorationGestureController!.dragStart();
+                              });
+                            },
+                            onHorizontalDragUpdate: (DragUpdateDetails details) {
+                              _restorationGestureController?.dragUpdate(
+                                details.primaryDelta! / context.size!.width,
+                              );
+                            },
+                            onHorizontalDragEnd: (DragEndDetails details) {
+                              _restorationGestureController?.dragEnd(
+                                details.velocity.pixelsPerSecond.dx / context.size!.width,
+                              );
+                              _restorationGestureController = null;
+                            },
+                            onHorizontalDragCancel: () {
+                              _restorationGestureController?.dragEnd(0.0);
+                              _restorationGestureController = null;
+                            },
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ),
@@ -5997,6 +6183,74 @@ class NavigatorState extends State<Navigator> with TickerProviderStateMixin, Res
         ),
       ),
     );
+  }
+}
+
+class _RestorationGestureController {
+  _RestorationGestureController({required this.navigator, required this.entry}) {
+    navigator.didStartUserGesture();
+  }
+
+  final NavigatorState navigator;
+  final _RouteEntry entry;
+
+  AnimationController? get controller {
+    if (entry.route is TransitionRoute) {
+      return (entry.route as TransitionRoute<dynamic>).controller;
+    }
+    return null;
+  }
+
+  void dragStart() {
+    // Stop the default push animation so we can control it manually.
+    // The route is in 'push' state, so it might try to animate forward.
+    // We need to stop it and set it to 0.0.
+    if (controller != null) {
+      controller!.stop();
+      controller!.value = 0.0;
+    }
+  }
+
+  void dragUpdate(double delta) {
+    if (controller == null) return;
+    controller!.value -= delta;
+  }
+
+  void dragEnd(double velocity) {
+    if (controller == null) return;
+
+    // Logic mirrored from _CupertinoBackGestureController but reversed
+    const Curve animationCurve = Curves.fastEaseInToSlowEaseOut;
+    final bool animateForward;
+
+    // Velocity is pixels per second / screen width.
+    // Negative velocity means swiping left (restoring).
+    // Positive velocity means swiping right (canceling).
+    if (velocity.abs() >= 1.0) {
+      animateForward = velocity <= 0;
+    } else {
+      animateForward = controller!.value > 0.5;
+    }
+
+    if (animateForward) {
+      // Complete restoration
+      controller!
+          .animateTo(1.0, duration: const Duration(milliseconds: 350), curve: animationCurve)
+          .then((void value) {
+            navigator.didStopUserGesture();
+          });
+    } else {
+      // Cancel restoration
+      controller!
+          .animateBack(0.0, duration: const Duration(milliseconds: 350), curve: animationCurve)
+          .then((void value) {
+            navigator.didStopUserGesture();
+            // Remove the entry from history and re-cache it
+            if (navigator.mounted) {
+              navigator._cancelRestoration(entry);
+            }
+          });
+    }
   }
 }
 
