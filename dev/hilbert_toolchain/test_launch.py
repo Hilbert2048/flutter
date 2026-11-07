@@ -87,6 +87,14 @@ class LaunchTest(unittest.TestCase):
             self.assertNotIn('LOCAL_ENGINE', env)
             self.assertNotIn('LOCAL_ENGINE_HOST', env)
 
+    def test_xcode_preaction_uses_project_environment_not_temp_cwd(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True):
+            root = Path(tmp)
+            (root / 'ios').mkdir()
+            (root / 'toolchain.json').write_text(json.dumps({'schema': 2}))
+            with patch.dict(os.environ, {'PROJECT_DIR': str(root / 'ios')}):
+                self.assertEqual(launch.action_project('xcode'), root.resolve())
+
     def test_external_override_is_rejected(self):
         with self.assertRaisesRegex(ToolchainError, 'conflict'):
             launch.cli_arguments(SelectionFixture(), ['--local-engine=other', 'build', 'ios'])

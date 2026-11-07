@@ -128,12 +128,24 @@ def flutter_environment():
     return env
 
 
+def action_project(kind):
+    if kind == 'xcode':
+        # Scheme pre-actions run in a temporary directory, unlike build phases.
+        for name in ('PROJECT_DIR', 'SRCROOT', 'FLUTTER_APPLICATION_PATH'):
+            if os.environ.get(name):
+                try:
+                    return project_root(os.environ[name])
+                except NoProjectLock:
+                    continue
+    return project_root()
+
+
 def main():
     kind, *args = sys.argv[1:]
     try:
         # The custom SDK remains usable for SDK maintenance outside locked apps.
         try:
-            root = project_root()
+            root = action_project(kind)
         except NoProjectLock:
             if kind == 'xcode':
                 raise
