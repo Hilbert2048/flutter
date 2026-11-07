@@ -62,6 +62,8 @@ fi
 if [[ "${HILBERT_FLUTTER_INNER:-}" != "1" ]]; then
   exec python3 "$BIN_DIR/../dev/hilbert_toolchain/launch.py" flutter "$@"
 fi
+# Consume the recursion guard; child Flutter commands must resolve their own lock.
+unset HILBERT_FLUTTER_INNER
 
 # To define `shared::execute()` function
 source "$SHARED_NAME"
