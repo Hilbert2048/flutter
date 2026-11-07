@@ -58,6 +58,11 @@ if [[ $OS =~ MINGW.* || $OS =~ CYGWIN.* || $OS =~ MSYS.* ]]; then
   exec "${BIN_DIR}/flutter.bat" "$@"
 fi
 
+# Project locks select a matching local iOS engine for CLI and IDE launches.
+if [[ "${HILBERT_FLUTTER_INNER:-}" != "1" ]]; then
+  exec python3 "$BIN_DIR/../dev/hilbert_toolchain/launch.py" flutter "$@"
+fi
+
 # To define `shared::execute()` function
 source "$SHARED_NAME"
 

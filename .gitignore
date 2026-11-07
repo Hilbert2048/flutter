@@ -171,3 +171,6 @@ app.*.symbols
 .agents/rules/personal-*
 .agents/skills/personal-*
 /.agent-shell/
+
+# Local engine registrations and build receipts.
+/.hilbert/
