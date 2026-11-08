@@ -1201,6 +1201,21 @@ class TestFlutterView implements FlutterView {
   @override
   int get viewId => _view.viewId;
 
+  WindowTransitionMetrics? _windowTransition;
+
+  @override
+  WindowTransitionMetrics? get windowTransition => _windowTransition ?? _view.windowTransition;
+
+  set windowTransition(WindowTransitionMetrics? value) {
+    _windowTransition = value;
+    platformDispatcher.onMetricsChanged?.call();
+  }
+
+  void resetWindowTransition() {
+    _windowTransition = null;
+    platformDispatcher.onMetricsChanged?.call();
+  }
+
   /// The device pixel ratio to use for this test.
   ///
   /// Defaults to the value provided by [FlutterView.devicePixelRatio]. This
@@ -1473,6 +1488,7 @@ class TestFlutterView implements FlutterView {
   ///   * [resetViewPadding] to reset [viewPadding] specifically
   ///   * [resetGestureSettings] to reset [gestureSettings] specifically
   void reset() {
+    resetWindowTransition();
     resetDevicePixelRatio();
     resetDisplayFeatures();
     resetPadding();

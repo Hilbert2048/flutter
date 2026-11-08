@@ -165,6 +165,9 @@ class CapturedAccessibilityAnnouncement {
 }
 
 class _TestFlutterView implements FlutterView {
+  @override
+  ui.WindowTransitionMetrics? get windowTransition => null;
+
   _TestFlutterView({
     required this.controller,
     required this._platformDispatcher,

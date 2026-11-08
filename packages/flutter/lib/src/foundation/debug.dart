@@ -27,6 +27,7 @@ import 'dart:ui'
         DisplayFeature,
         ErrorCallback,
         FlutterView,
+        WindowTransitionMetrics,
         FrameCallback,
         FrameData,
         GestureSettings,
@@ -1759,6 +1760,9 @@ class _DebugViewMetricsPlatformDispatcher implements ui.PlatformDispatcher {
 // A [ui.FlutterView] that reports the metrics of its [debugViewMetricsOverrides]
 // entry in place of the ones the platform reports.
 class _DebugViewMetricsFlutterView implements ui.FlutterView {
+  @override
+  ui.WindowTransitionMetrics? get windowTransition => _view.windowTransition;
+
   _DebugViewMetricsFlutterView(this._view);
 
   final ui.FlutterView _view;
