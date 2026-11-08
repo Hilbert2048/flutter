@@ -156,8 +156,8 @@ DisplayCornerRadii? _decodeDisplayCornerRadii({
     final isTopLeftSet = displayCornerRadiusTopLeft != _kUnsetDisplayCornerRadius;
     final bool isConsistent =
         (displayCornerRadiusTopRight != _kUnsetDisplayCornerRadius) == isTopLeftSet &&
-        (displayCornerRadiusBottomRight != _kUnsetDisplayCornerRadius) == isTopLeftSet &&
-        (displayCornerRadiusBottomLeft != _kUnsetDisplayCornerRadius) == isTopLeftSet;
+            (displayCornerRadiusBottomRight != _kUnsetDisplayCornerRadius) == isTopLeftSet &&
+            (displayCornerRadiusBottomLeft != _kUnsetDisplayCornerRadius) == isTopLeftSet;
 
     if (!isConsistent) {
       throw ArgumentError(
@@ -215,9 +215,11 @@ _ViewConfiguration _buildViewConfiguration(
   double displayCornerRadiusTopLeft,
   double displayCornerRadiusTopRight,
   double displayCornerRadiusBottomRight,
-  double displayCornerRadiusBottomLeft,
-) {
+  double displayCornerRadiusBottomLeft, [
+  WindowTransitionMetrics? windowTransition,
+]) {
   return _ViewConfiguration(
+    windowTransition: windowTransition,
     devicePixelRatio: devicePixelRatio,
     size: Size(width, height),
     viewPadding: ViewPadding._(
@@ -299,8 +301,15 @@ void _updateWindowMetrics(
   double displayCornerRadiusTopLeft,
   double displayCornerRadiusTopRight,
   double displayCornerRadiusBottomRight,
-  double displayCornerRadiusBottomLeft,
-) {
+  double displayCornerRadiusBottomLeft, [
+  int transitionId = 0,
+  int transitionSample = 0,
+  int transitionPhase = 0,
+  double fromWidth = 0,
+  double fromHeight = 0,
+  double targetWidth = 0,
+  double targetHeight = 0,
+]) {
   final _ViewConfiguration viewConfiguration = _buildViewConfiguration(
     devicePixelRatio,
     width,
@@ -330,6 +339,16 @@ void _updateWindowMetrics(
     displayCornerRadiusTopRight,
     displayCornerRadiusBottomRight,
     displayCornerRadiusBottomLeft,
+    transitionPhase == 0
+        ? null
+        : WindowTransitionMetrics(
+            revision: transitionId,
+            sampleId: transitionSample,
+            phase: WindowTransitionPhase.values[transitionPhase],
+            fromSize: Size(fromWidth, fromHeight),
+            targetSize: Size(targetWidth, targetHeight),
+            presentationSize: Size(width, height),
+          ),
   );
   PlatformDispatcher.instance._updateWindowMetrics(viewId, viewConfiguration);
 }

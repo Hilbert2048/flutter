@@ -89,7 +89,14 @@ ViewportMetrics::ViewportMetrics(
           p_physical_display_corner_radius_bottom_left) {}
 
 bool operator==(const ViewportMetrics& a, const ViewportMetrics& b) {
-  return a.device_pixel_ratio == b.device_pixel_ratio &&
+  return a.window_transition_id == b.window_transition_id &&
+         a.window_transition_sample == b.window_transition_sample &&
+         a.window_transition_phase == b.window_transition_phase &&
+         a.window_from_width == b.window_from_width &&
+         a.window_from_height == b.window_from_height &&
+         a.window_target_width == b.window_target_width &&
+         a.window_target_height == b.window_target_height &&
+         a.device_pixel_ratio == b.device_pixel_ratio &&
          a.physical_width == b.physical_width &&
          a.physical_height == b.physical_height &&
          a.physical_min_width_constraint == b.physical_min_width_constraint &&

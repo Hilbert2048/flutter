@@ -196,6 +196,10 @@ class FlutterView {
   ///    observe when this value changes.
   Size get physicalSize => _viewConfiguration.size;
 
+  /// Experimental platform window geometry, in physical pixels.
+  /// Null when the platform does not supply a transition context.
+  WindowTransitionMetrics? get windowTransition => _viewConfiguration.windowTransition;
+
   /// The number of physical pixels on each side of the display rectangle into
   /// which the view can render, but over which the operating system will likely
   /// place system UI, such as the keyboard, that fully obscures any content.

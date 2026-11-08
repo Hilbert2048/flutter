@@ -5,6 +5,7 @@
 #ifndef FLUTTER_LIB_UI_WINDOW_VIEWPORT_METRICS_H_
 #define FLUTTER_LIB_UI_WINDOW_VIEWPORT_METRICS_H_
 
+#include <cstdint>
 #include <ostream>
 #include <vector>
 
@@ -45,6 +46,15 @@ struct ViewportMetrics {
                   double p_physical_display_corner_radius_top_right,
                   double p_physical_display_corner_radius_bottom_right,
                   double p_physical_display_corner_radius_bottom_left);
+  // Experimental window transaction, expressed in physical pixels. Zero phase
+  // denotes a platform with no active transition context.
+  int64_t window_transition_id = 0;
+  int64_t window_transition_sample = 0;
+  int64_t window_transition_phase = 0;
+  double window_from_width = 0;
+  double window_from_height = 0;
+  double window_target_width = 0;
+  double window_target_height = 0;
   double device_pixel_ratio = 1.0;
   double physical_width = 0;
   double physical_height = 0;

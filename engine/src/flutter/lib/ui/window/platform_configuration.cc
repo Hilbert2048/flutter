@@ -246,6 +246,13 @@ bool PlatformConfiguration::UpdateViewMetrics(
               view_metrics.physical_display_corner_radius_bottom_right),
           tonic::ToDart(
               view_metrics.physical_display_corner_radius_bottom_left),
+          tonic::ToDart(view_metrics.window_transition_id),
+          tonic::ToDart(view_metrics.window_transition_sample),
+          tonic::ToDart(view_metrics.window_transition_phase),
+          tonic::ToDart(view_metrics.window_from_width),
+          tonic::ToDart(view_metrics.window_from_height),
+          tonic::ToDart(view_metrics.window_target_width),
+          tonic::ToDart(view_metrics.window_target_height),
       }));
   return true;
 }

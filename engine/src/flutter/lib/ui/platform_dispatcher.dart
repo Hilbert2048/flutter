@@ -2032,7 +2032,9 @@ class _PlatformConfiguration {
 
 /// An immutable view configuration.
 class _ViewConfiguration {
+  final WindowTransitionMetrics? windowTransition;
   const _ViewConfiguration({
+    this.windowTransition,
     this.devicePixelRatio = 1.0,
     this.size = Size.zero,
     this.viewInsets = ViewPadding.zero,
