@@ -323,4 +323,31 @@
   [self removeMetalLayer:layer];
 }
 
+- (void)testCompletedResizeFrameIsVisibleWithoutStretching {
+  FlutterMetalLayer* layer = [self addMetalLayer];
+  id<CAMetalDrawable> drawable = [layer nextDrawable];
+  BAIL_IF_NO_DRAWABLE(drawable);
+  layer.drawableSize = CGSizeMake(160, 80);
+  [drawable present];
+  XCTAssertEqualObjects(layer.contentsGravity, kCAGravityCenter);
+  XCTAssertNotNil(layer.contents);
+  XCTAssertEqual(IOSurfaceGetWidth((__bridge IOSurfaceRef)layer.contents), 100u);
+  [self removeMetalLayer:layer];
+}
+
+- (void)testLateDrawableCannotReplaceNewerFrame {
+  FlutterMetalLayer* layer = [self addMetalLayer];
+  id<CAMetalDrawable> oldDrawable = [layer nextDrawable];
+  BAIL_IF_NO_DRAWABLE(oldDrawable);
+  layer.drawableSize = CGSizeMake(160, 80);
+  id<CAMetalDrawable> newDrawable = [layer nextDrawable];
+  BAIL_IF_NO_DRAWABLE(newDrawable);
+  [newDrawable present];
+  id contents = layer.contents;
+  [oldDrawable present];
+  XCTAssertEqual(layer.contents, contents);
+  XCTAssertEqual(IOSurfaceGetWidth((__bridge IOSurfaceRef)layer.contents), 160u);
+  [self removeMetalLayer:layer];
+}
+
 @end

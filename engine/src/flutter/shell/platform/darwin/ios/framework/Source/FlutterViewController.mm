@@ -6,6 +6,7 @@
 
 #import "flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController_Internal.h"
 #include "flutter/shell/platform/darwin/ios/framework/Source/view_surface_coordinator.h"
+#import "flutter/shell/platform/darwin/ios/framework/Source/FlutterWindowTransition.h"
 
 #import <os/log.h>
 #include <memory>
@@ -156,6 +157,7 @@ typedef struct MouseState {
 @implementation FlutterViewController {
   flutter::ViewportMetrics _viewportMetrics;
   flutter::ViewSurfaceCoordinator _surfaceCoordinator;
+  FlutterWindowTransition* _windowTransition;
   MouseState _mouseState;
   FlutterSplashScreenManager* _splashScreenManager;
 }
@@ -872,6 +874,7 @@ static UIView* GetViewOrPlaceholder(UIView* existing_view) {
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
+  [_windowTransition cancel];
   TRACE_EVENT0("flutter", "viewWillDisappear");
   if (self.engine.viewController == self) {
     [self.engine.lifecycleChannel sendMessage:@"AppLifecycleState.inactive"];
@@ -895,36 +898,15 @@ static UIView* GetViewOrPlaceholder(UIView* existing_view) {
 - (void)viewWillTransitionToSize:(CGSize)size
        withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
   [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
-
-  // We delay the viewport metrics update for half of rotation transition duration, to address
-  // a bug with distorted aspect ratio.
-  // See: https://github.com/flutter/flutter/issues/16322
-  //
-  // This approach does not fully resolve all distortion problem. But instead, it reduces the
-  // rotation distortion roughly from 4x to 2x. The most distorted frames occur in the middle
-  // of the transition when it is rotating the fastest, making it hard to notice.
-
-  NSTimeInterval transitionDuration = coordinator.transitionDuration;
-  // Do not delay viewport metrics update if zero transition duration.
-  if (transitionDuration == 0) {
-    return;
+  if (!_windowTransition) {
+    __weak FlutterViewController* weakSelf = self;
+    _windowTransition = [[FlutterWindowTransition alloc] initWithView:self.view onUpdate:^{
+      FlutterViewController* strongSelf = weakSelf;
+      [strongSelf setViewportMetricsSize];
+      [strongSelf updateViewportMetricsIfNeeded];
+    }];
   }
-
-  __weak FlutterViewController* weakSelf = self;
-  _shouldIgnoreViewportMetricsUpdatesDuringRotation = YES;
-  dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
-                               static_cast<int64_t>(transitionDuration / 2.0 * NSEC_PER_SEC)),
-                 dispatch_get_main_queue(), ^{
-                   FlutterViewController* strongSelf = weakSelf;
-                   if (!strongSelf) {
-                     return;
-                   }
-
-                   // `viewWillTransitionToSize` is only called after the previous rotation is
-                   // complete. So there won't be race condition for this flag.
-                   strongSelf.shouldIgnoreViewportMetricsUpdatesDuringRotation = NO;
-                   [strongSelf updateViewportMetricsIfNeeded];
-                 });
+  [_windowTransition beginToSize:size coordinator:coordinator];
 }
 
 - (void)flushOngoingTouches {
@@ -1074,6 +1056,7 @@ static UIView* GetViewOrPlaceholder(UIView* existing_view) {
 }
 
 - (void)appOrSceneDidEnterBackground {
+  [_windowTransition cancel];
   self.keyboardInsetManager.isKeyboardInOrTransitioningFromBackground = YES;
   [self surfaceUpdated:NO];
   [self goToApplicationLifecycle:@"AppLifecycleState.paused"];
@@ -1353,6 +1336,7 @@ static flutter::PointerData::DeviceKind DeviceKindFromTouchType(UITouch* touch) 
 #pragma mark - Handle view resizing
 
 - (void)updateViewportMetricsIfNeeded {
+  [_windowTransition updateMetrics:&_viewportMetrics scale:self.flutterScreenIfViewLoaded.scale];
   if (_shouldIgnoreViewportMetricsUpdatesDuringRotation) {
     return;
   }

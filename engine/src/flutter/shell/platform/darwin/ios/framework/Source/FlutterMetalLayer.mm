@@ -23,6 +23,8 @@ FLUTTER_ASSERT_ARC
   CGSize _drawableSize;
 
   NSUInteger _nextDrawableId;
+  NSUInteger _latestSubmittedDrawableId;
+  BOOL _hasSubmittedDrawable;
 
   // Access to these variables must be synchronized.
   NSMutableSet<FlutterTexture*>* _availableTextures;
@@ -30,7 +32,7 @@ FLUTTER_ASSERT_ARC
   FlutterTexture* _front;
 }
 
-- (void)presentTexture:(FlutterTexture*)texture;
+- (void)presentTexture:(FlutterTexture*)texture drawableId:(NSUInteger)drawableId;
 - (void)returnTexture:(FlutterTexture*)texture;
 
 @end
@@ -102,7 +104,7 @@ FLUTTER_ASSERT_ARC
 }
 
 - (void)present {
-  [_layer presentTexture:self->_texture];
+  [_layer presentTexture:self->_texture drawableId:_drawableId];
   self->_presented = YES;
 }
 
@@ -142,6 +144,9 @@ FLUTTER_ASSERT_ARC
     _preferredDevice = MTLCreateSystemDefaultDevice();
     self.device = self.preferredDevice;
     self.pixelFormat = MTLPixelFormatBGRA8Unorm;
+    // Experimental: the viewport tracks presentation bounds. Keep a delayed
+    // drawable at its own pixel scale instead of distorting it to newer bounds.
+    self.contentsGravity = kCAGravityCenter;
     _availableTextures = [[NSMutableSet alloc] init];
 
     [[NSNotificationCenter defaultCenter] addObserver:self
@@ -322,42 +327,41 @@ FLUTTER_ASSERT_ARC
   return drawable;
 }
 
-- (void)presentOnMainThread:(FlutterTexture*)texture {
-  if (texture.texture.width != _drawableSize.width ||
-      texture.texture.height != _drawableSize.height) {
-    // This texture was created with an old size, but the view has since been
-    // resized. Do not present this stale frame to avoid distortion. The texture
-    // will be correctly recycled on the next frame.
-    return;
-  }
-
-  // This is needed otherwise frame gets skipped on touch begin / end. Go figure.
-  // Might also be placebo
-  [self setNeedsDisplay];
-
-  [CATransaction begin];
-  [CATransaction setDisableActions:YES];
-  self.contents = texture.surface;
-  [CATransaction commit];
-}
-
-- (void)presentTexture:(FlutterTexture*)texture {
+- (void)presentOnMainThread:(FlutterTexture*)texture drawableId:(NSUInteger)drawableId {
   @synchronized(self) {
-    if (texture.texture.width != _drawableSize.width ||
-        texture.texture.height != _drawableSize.height) {
+    // Allocation size may already belong to the next frame. It is not a frame
+    // freshness token: rejecting on size starves a continuously resizing view.
+    // Only a newer submitted drawable can supersede this completed frame.
+    if (drawableId != _latestSubmittedDrawableId) {
       return;
     }
-    if (_front != nil) {
+    [self setNeedsDisplay];
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    self.contents = texture.surface;
+    [CATransaction commit];
+  }
+}
+
+- (void)presentTexture:(FlutterTexture*)texture drawableId:(NSUInteger)drawableId {
+  @synchronized(self) {
+    if (_hasSubmittedDrawable && drawableId <= _latestSubmittedDrawableId) {
+      [self returnTexture:texture];
+      return;
+    }
+    _hasSubmittedDrawable = YES;
+    _latestSubmittedDrawableId = drawableId;
+    if (_front != nil && _front.texture.width == _drawableSize.width &&
+        _front.texture.height == _drawableSize.height) {
       [_availableTextures addObject:_front];
     }
     _front = texture;
     texture.presentedTime = CACurrentMediaTime();
     if ([NSThread isMainThread]) {
-      [self presentOnMainThread:texture];
+      [self presentOnMainThread:texture drawableId:drawableId];
     } else {
-      // Core animation layers can only be updated on main thread.
       dispatch_async(dispatch_get_main_queue(), ^{
-        [self presentOnMainThread:texture];
+        [self presentOnMainThread:texture drawableId:drawableId];
       });
     }
   }
